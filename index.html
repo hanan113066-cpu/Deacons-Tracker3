@@ -270,28 +270,32 @@ function renderRoster(){const q=(document.getElementById('attSearch').value||'')
 function markAll(status){document.querySelectorAll('.class-status').forEach(x=>{x.checked=status==='حاضر';x.dataset.touched='1';const label=x.closest('label');if(label&&label.querySelector('.check-state'))label.querySelector('.check-state').textContent=x.checked?'حاضر':''})}
 function saveAttendance(){
  const date=document.getElementById('attDate').value;if(!date){toast('اختر التاريخ أولًا');return}
- const week=gradeWeekStart(date), classInputs=[...document.querySelectorAll('.class-status')], massInputs=[...document.querySelectorAll('.mass-score')], readerInputs=[...document.querySelectorAll('.reader-status')];
- const anyClassChecked=classInputs.some(el=>el.checked), anyMassScore=massInputs.some(el=>el.value!==''), anyReaderYes=readerInputs.some(el=>el.value==='نعم');
+ const week=gradeWeekStart(date), visibleIds=new Set([...document.querySelectorAll('.class-status')].map(el=>Number(el.dataset.id)));
+ const classInputs=[...document.querySelectorAll('.class-status')],massInputs=[...document.querySelectorAll('.mass-score')],readerInputs=[...document.querySelectorAll('.reader-status')];
  const weekMatch=a=>a.week===week||gradeWeekStart(a.date||date)===week;
- // لو مفيش أي حضور أو درجة قداس أو قراءة مسجلة، اعتبر الأسبوع كأنه لم يُسجل واحذف سجلاته كلها.
- if(!anyClassChecked&&!anyMassScore&&!anyReaderYes){
-   db.attendance=db.attendance.filter(a=>!weekMatch(a));
-   save();renderAll();toast('تم الحفظ');return;
- }
- const sessionActive=anyClassChecked;
+ // Apply class attendance only to students currently shown by the search; keep hidden students' existing marks.
+ const classState=new Map();
+ db.students.forEach(st=>{const old=db.attendance.find(a=>Number(a.studentId)===Number(st.id)&&weekMatch(a));classState.set(Number(st.id),(old?.classStatus||old?.status)==='حاضر')});
+ classInputs.forEach(el=>classState.set(Number(el.dataset.id),el.checked));
+ const anyPresent=[...classState.values()].some(Boolean);
+ // Merge per field: class attendance never overwrites mass grades or reading records.
  db.students.forEach(student=>{
   const studentId=Number(student.id),classEl=document.querySelector(`.class-status[data-id="${studentId}"]`),massEl=document.querySelector(`.mass-score[data-id="${studentId}"]`),readerEl=document.querySelector(`.reader-status[data-id="${studentId}"]`);
   let old=db.attendance.find(a=>Number(a.studentId)===studentId&&weekMatch(a));
-  const massScore=massEl&&massEl.value!==''?Number(massEl.value):'';
-  const classChecked=classEl?classEl.checked:false;
-  const isPresent=classChecked;
-  const classStatus=sessionActive?(isPresent?'حاضر':'غائب'):'غير مسجل';
-  const massStatus=massScore!==''?'حاضر':'';
-  const reader=(readerEl&&readerEl.value==='نعم')?'نعم':'لا';
-  const hasData=sessionActive||massScore!==''||reader==='نعم';
-  if(!hasData){if(old)db.attendance=db.attendance.filter(a=>a!==old);return}
-  const coins=massScore!==''&&Number(massScore)>=8?1:0;
-  const data={week,studentId,date:week,classSession:sessionActive,classStatus,massStatus,massScore,coins,reader,bonus:reader==='نعم'?1:0,status:classStatus};
+  const visible=visibleIds.has(studentId);
+  const hasMassInput=!!massEl,hasReaderInput=!!readerEl;
+  const oldClassPresent=(old?.classStatus||old?.status)==='حاضر';
+  const classPresent=classState.get(studentId)===true;
+  let massScore=old?.massScore!==undefined&&old?.massScore!==null?old.massScore:'';
+  let reader=old?.reader||'لا';
+  if(hasMassInput) massScore=massEl.value!==''?Number(massEl.value):'';
+  if(hasReaderInput) reader=readerEl.value==='نعم'?'نعم':'لا';
+  const shouldHaveClassRecord=anyPresent;
+  const classStatus=shouldHaveClassRecord?(classPresent?'حاضر':'غائب'):'غير مسجل';
+  const hasMass=massScore!==''&&massScore!==null&&massScore!==undefined;
+  const hasReader=reader==='نعم';
+  if(!shouldHaveClassRecord&&!hasMass&&!hasReader){if(old)db.attendance=db.attendance.filter(a=>a!==old);return}
+  const data={week,studentId,date:week,classSession:shouldHaveClassRecord,classStatus,massScore:hasMass?massScore:'',massStatus:hasMass?'حاضر':(old?.massStatus==='حاضر'&&!hasMass?'':''),coins:hasMass&&Number(massScore)>=8?1:0,reader,bonus:hasReader?1:0,status:classStatus};
   if(old)Object.assign(old,data);else db.attendance.push({id:Date.now()+studentId,...data});
  });
  save();renderAll();toast('تم الحفظ');
@@ -306,7 +310,7 @@ function renderRecent(){const latest=[...db.grades.map(g=>({date:g.date,text:`إ
 function renderAll(){fillStudentSelect(document.getElementById('gradeStudent'));fillSubjects();renderHome();renderStudents();renderGrades();renderRoster();renderAttendanceLog();renderSubjects();renderReports();renderRecent();document.getElementById('statStudents').textContent=db.students.length;const dates=[...new Set(db.attendance.map(a=>a.date))].sort();const last=dates[dates.length-1];const latest=db.attendance.filter(a=>a.date===last);document.getElementById('statPresent').textContent=last?latest.filter(a=>a.status==='حاضر').length:'—';document.getElementById('statAbsent').textContent=last?latest.filter(a=>a.status==='غائب').length:'—';const arr=db.grades.flatMap(g=>[g.hymns,g.coptic,g.verse]).filter(v=>v!==''&&v!==null&&v!==undefined&&Number.isFinite(Number(v))).map(Number).map(v=>v*10);document.getElementById('statAverage').textContent=arr.length?(arr.reduce((a,b)=>a+b,0)/arr.length).toFixed(1)+'%':'—'}
 function goSearch(){showPage('home');renderHome();document.getElementById('homeSearch').focus()}
 function clearSearch(){document.getElementById('homeSearch').value='';renderHome()}
-document.getElementById('homeSearch').addEventListener('input',renderHome);document.getElementById('studentsSearch').addEventListener('input',renderStudents);document.getElementById('gradeFilter').addEventListener('input',renderGrades);const gradeSubjectFilter=document.getElementById('gradeSubjectFilter');if(gradeSubjectFilter)gradeSubjectFilter.addEventListener('change',renderGrades);document.getElementById('attSearch').addEventListener('input',renderRoster);document.getElementById('attDate').addEventListener('change',renderRoster);document.getElementById('attLogFilter').addEventListener('input',renderAttendanceLog);
+document.getElementById('homeSearch').addEventListener('input',renderHome);document.getElementById('studentsSearch').addEventListener('input',renderStudents);document.getElementById('gradeFilter').addEventListener('input',renderGrades);const gradeSubjectFilter=document.getElementById('gradeSubjectFilter');if(gradeSubjectFilter)gradeSubjectFilter.addEventListener('change',renderGrades);document.getElementById('attendanceRoster').addEventListener('change',e=>{if(e.target.matches('.class-status,.mass-score,.reader-status')){if(e.target.matches('.class-status')){e.target.dataset.touched='1';const label=e.target.closest('label');if(label&&label.querySelector('.check-state'))label.querySelector('.check-state').textContent=e.target.checked?'حاضر':''}saveAttendance()}});document.getElementById('attSearch').addEventListener('input',renderRoster);document.getElementById('attDate').addEventListener('change',renderRoster);document.getElementById('attLogFilter').addEventListener('input',renderAttendanceLog);
 function downloadBackup(){const blob=new Blob([JSON.stringify(db,null,2)],{type:'application/json'});downloadBlob(blob,'student-tracker-backup-'+today()+'.json');toast('تم تنزيل النسخة الاحتياطية')}
 document.getElementById('backupFile').addEventListener('change',async e=>{const f=e.target.files[0];if(!f)return;try{const x=JSON.parse(await f.text());if(!Array.isArray(x.students)||!Array.isArray(x.grades)||!Array.isArray(x.attendance)||!Array.isArray(x.subjects))throw new Error();if(confirm('استيراد هذه النسخة سيستبدل البيانات الحالية. هل تريد المتابعة؟')){db=x;save();toast('تم استيراد البيانات')}}catch(err){alert('الملف غير صالح أو ليس نسخة احتياطية من هذا الموقع')}e.target.value=''});
 function downloadBlob(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}

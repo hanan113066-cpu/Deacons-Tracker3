@@ -216,14 +216,7 @@ async function connectFirebase(){
     }else if(!pendingSync){
       const payload=JSON.stringify(db);const write=await fetch(FIREBASE_DB_URL+'/studentTracker.json',{method:'PUT',headers:{'Content-Type':'application/json'},body:payload});if(!write.ok)throw new Error('إنشاء البيانات: HTTP '+write.status);lastRemoteSnapshot=payload;
     }
-    // تنظيف سجلات الحضور القديمة ليومي 16 و17 أكتوبر 2026 مرة واحدة عند الاتصال، حتى يبدأ التسجيل من جديد.
-    const cleanupKey='studentTrackerAttendanceCleanup_20261016_17_v1';
-    if(!localStorage.getItem(cleanupKey)){
-      const beforeCount=db.attendance.length;
-      db.attendance=db.attendance.filter(a=>!['2026-10-16','2026-10-17'].includes(String(a.date||'')));
-      localStorage.setItem(cleanupKey,'1');
-      if(db.attendance.length!==beforeCount){pendingSync=true;localStorage.setItem(KEY,JSON.stringify(db));localStorage.setItem(PENDING_KEY,'1');renderAll();}
-    }
+    // لا نحذف سجلات الحضور القديمة تلقائيًا عند الاتصال؛ نحافظ على البيانات الموجودة.
     remoteReady=true;retryDelay=2000;setSyncStatus('✓ متصل بقاعدة البيانات','#087c54');
     if(pendingSync)await pushToFirebase();else toast('تم الاتصال بقاعدة البيانات السحابية');
   }catch(err){remoteReady=false;console.error('Firebase connection failed:',err);setSyncStatus('⚠️ السحابة غير متصلة — جارٍ إعادة المحاولة','#c93450');scheduleReconnect()}
